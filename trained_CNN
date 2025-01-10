@@ -1,2 +1,203 @@
-step 1
-https://colab.research.google.com/drive/1_LuGV7lDfd8bJKH88KQMINz-RS4A3miR?usp=sharing
+#Step 1
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+#Step 2
+from google.colab import drive
+drive.mount('/content/drive')
+
+#Step 3 : Image laoding
+# Define paths to train and test folders
+main_folder = '/content/drive/MyDrive/own-data-preprocessed/own-data-preprocessed'
+train_dir = f"{main_folder}/train"
+test_dir = f"{main_folder}/test"
+
+# ImageDataGenerator for image preprocessing
+train_datagen = ImageDataGenerator(rescale=1./255)  # Normalize pixel values
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+# Load images from train and test folders
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(128, 128),  # Resize images to 128x128
+    batch_size=32,
+    class_mode='categorical',  # Since there are 38 classes
+    shuffle=False
+)
+
+test_generator = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=(128, 128),
+    batch_size=32,
+    class_mode='categorical',
+    shuffle=True
+)
+
+# Print class indices (to verify class mapping)
+print("Classes:", train_generator.class_indices)
+print("Classes:", test_generator.class_indices)
+
+#Step 4 : Converting images into array using numpy
+import os
+import cv2
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor #LOADS AND PROCESSES IMAGES PARALLELY
+
+# Function to load and preprocess a single image
+def process_image(img_path, img_size=(128, 128)):
+    img = cv2.imread(img_path)  # Read image
+    if img is not None:  # Check if the image is valid
+        img = cv2.resize(img, img_size)  # Resize to 128x128
+        return img
+    return None
+
+# Function to load images from a folder
+def load_images_from_directory(directory, img_size=(128, 128), num_workers=4):
+    images = []
+    labels = []
+    classes = sorted(os.listdir(directory))  # Sorted list of subfolders (classes)
+
+    for label, class_name in enumerate(classes):
+        class_path = os.path.join(directory, class_name)
+        if os.path.isdir(class_path):
+            img_files = [os.path.join(class_path, f) for f in os.listdir(class_path) if f.endswith(('.png', '.jpg', '.jpeg'))]
+
+            # Use ThreadPoolExecutor for parallel processing
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                processed_images = list(executor.map(lambda x: process_image(x, img_size), img_files))
+
+            # Filter out any None values (invalid images)
+            processed_images = [img for img in processed_images if img is not None]
+            images.extend(processed_images)
+            labels.extend([label] * len(processed_images))
+
+    return np.array(images), np.array(labels), classes
+
+# Load train and test images
+train_images, train_labels, class_names = load_images_from_directory(train_dir, num_workers=8)
+test_images, test_labels, _ = load_images_from_directory(test_dir, num_workers=8)
+
+# Print dataset details
+print("Train images shape:", train_images.shape)
+print("Train labels shape:", train_labels.shape)
+print("Number of classes:", len(class_names))
+print("Classes:", class_names)
+
+#Step 5 : Building CNN model
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(128, 128, 3)),  # Input layer
+    MaxPooling2D((2, 2)),
+
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+
+    Conv2D(128, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.5),
+    Dense(38, activation='softmax')  # 38 output classes
+])
+model.summary()
+
+#Step 6 : Training CNN model
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Data preprocessing
+train_datagen = ImageDataGenerator(rescale=1./255, rotation_range=20, zoom_range=0.2, shear_range=0.2, horizontal_flip=True)
+train_generator = train_datagen.flow_from_directory(
+    '/content/drive/MyDrive/own-data-preprocessed/own-data-preprocessed/train',
+    target_size=(128, 128),
+    batch_size=32,
+    class_mode='categorical'
+)
+
+val_datagen = ImageDataGenerator(rescale=1./255)
+val_generator = val_datagen.flow_from_directory(
+    '/content/drive/MyDrive/own-data-preprocessed/own-data-preprocessed/train',
+    target_size=(128, 128),
+    batch_size=32,
+    class_mode='categorical'
+)
+
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Train the model
+history = model.fit(
+    train_generator,
+    epochs=5,
+    validation_data=val_generator
+)
+
+#Step 7 : SAVE THE TRAINED MODEL
+
+model.save('trained_cnn_model_for_Indiansignlanguage.keras')
+
+
+#Step 8 : Optional 
+#Plots
+import matplotlib.pyplot as plt
+# Extract training and validation accuracy
+train_accuracy = [0.8646,0.8812,0.9022,0.973,0.9220] # replace with your values
+val_accuracy = [0.9871,0.9870,0.9914,0.9914,0.9954,0.9937] # replace with your values
+
+# Plot the graph
+plt.figure(figsize=(8, 5))
+plt.plot(train_accuracy, label='Training Accuracy', marker='o', linestyle='-')
+plt.plot(val_accuracy, label='Validation Accuracy', marker='o', linestyle='-')
+plt.title('Model Accuracy over Epochs')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+#Confusion Matrix
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+y_test: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+          'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+          'N', 'O', 'P', 'Q', 'R', 'S',
+          'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'full-stop', 'space']#True labels for the test set
+y_pred: ['2', '1', 'V', '3', '6', '5', '6', '7', '8', '9',
+          'A', 'B', 'C', 'R', 'K', 'F', 'C', 'H', 'I', 'J', 'K', 'L', 'M',
+          'N', 'O', 'full-stop', 'Q', 'R', 'S',
+          'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'full-stop', 'space']#Predicted labels from the model
+
+# Example: True labels and predictions (use your actual data)
+y_test = np.array(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+          'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+          'N', 'O', 'P', 'Q', 'R', 'S',
+          'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'full-stop', 'space'])  # True labels
+y_pred = np.array(['2', '1', 'V', '3', '6', '5', '6', '7', '8', '9',
+          'A', 'B', 'C', 'R', 'K', 'F', 'C', 'H', 'I', 'J', 'K', 'L', 'M',
+          'N', 'O', 'full-stop', 'Q', 'R', 'S',
+          'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'full-stop', 'space'])  # Predicted labels
+
+# Compute the confusion matrix
+cm = confusion_matrix(y_test, y_pred)
+
+# Display the confusion matrix
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=np.unique(y_test))
+
+# Plot the confusion matrix
+plt.figure(figsize=(8, 6))
+disp.plot(cmap=plt.cm.Reds, values_format='d')
+plt.title("Confusion Matrix")
+plt.show()
+
